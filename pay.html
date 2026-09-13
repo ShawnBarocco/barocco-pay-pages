@@ -1,0 +1,91 @@
+<!doctype html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Barocco Secure Payment</title>
+<style>
+body{font-family:system-ui,Arial,sans-serif;max-width:520px;margin:40px auto;padding:0 16px;color:#111}
+.card{border:1px solid #eee;border-radius:12px;padding:24px;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+h1{font-size:18px} .amt{font-size:15px;color:#444}
+input{font-size:18px;padding:10px;width:100%;box-sizing:border-box;border:1px solid #ccc;border-radius:8px}
+button{margin-top:16px;font-size:16px;padding:12px 16px;width:100%;border:0;border-radius:8px;background:#111;color:#fff;cursor:pointer}
+.muted{color:#777;font-size:12px;margin-top:12px}
+</style>
+</head>
+<body>
+<div id="app" class="card"><p>Loading&hellip;</p></div>
+<form id="redirectForm" method="post" style="display:none">
+  <input type="hidden" name="token" id="redirectToken">
+</form>
+<script>
+var FUNCTION_URL = 'https://orvurxgjmsxgtbxdzllo.supabase.co/functions/v1/pay';
+var params = new URLSearchParams(location.search);
+var token = params.get('t') || '';
+var isDone = params.get('done') === '1';
+var app = document.getElementById('app');
+
+function esc(s) {
+  var d = document.createElement('div');
+  d.innerText = String(s);
+  return d.innerHTML;
+}
+function renderError(msg) {
+  app.innerHTML = '<h1>' + esc(msg) + '</h1>';
+}
+function renderDone() {
+  app.innerHTML = '<h1>Thank you</h1><p class="muted">You can close this window.</p>';
+}
+function redirectTo(action, tok) {
+  var f = document.getElementById('redirectForm');
+  f.action = action;
+  document.getElementById('redirectToken').value = tok;
+  app.innerHTML = '<h1>Redirecting to secure payment&hellip;</h1>';
+  f.submit();
+}
+function renderAmountForm(invoiceNumber, balance) {
+  app.innerHTML =
+    '<h1>Pay invoice ' + esc(invoiceNumber) + '</h1>' +
+    '<p class="amt">Balance due: $' + balance.toFixed(2) + '</p>' +
+    '<label>Amount to pay (USD)</label>' +
+    '<input id="amountInput" type="number" step="0.01" min="0.01" max="' + balance + '" value="' + balance.toFixed(2) + '"/>' +
+    '<button id="continueBtn">Continue to secure payment</button>' +
+    '<p class="muted">Secured by Authorize.Net.</p>';
+  document.getElementById('continueBtn').addEventListener('click', async function () {
+    var amount = parseFloat(document.getElementById('amountInput').value);
+    if (!amount || amount <= 0) { renderError('Enter a valid amount'); return; }
+    app.innerHTML = '<p>Processing&hellip;</p>';
+    try {
+      var res = await fetch(FUNCTION_URL + '?t=' + encodeURIComponent(token), {
+        method: 'POST',
+        headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount: amount }),
+      });
+      var data = await res.json();
+      handleResponse(data);
+    } catch (e) {
+      renderError('Something went wrong. Please try again.');
+    }
+  });
+}
+function handleResponse(data) {
+  if (data.error) { renderError(typeof data.error === 'string' ? data.error : 'Something went wrong'); return; }
+  if (data.status === 'redirect') { redirectTo(data.action, data.token); return; }
+  if (data.status === 'amount_form') { renderAmountForm(data.invoiceNumber, data.balance); return; }
+  if (data.status === 'done') { renderDone(); return; }
+  renderError('Unexpected response');
+}
+
+(async function init() {
+  if (!token) { renderError('Invalid link'); return; }
+  try {
+    var url = FUNCTION_URL + '?t=' + encodeURIComponent(token) + (isDone ? '&done=1' : '');
+    var res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+    var data = await res.json();
+    handleResponse(data);
+  } catch (e) {
+    renderError('Something went wrong. Please try again.');
+  }
+})();
+</script>
+</body>
+</html>
