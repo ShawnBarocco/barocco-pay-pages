@@ -1,91 +1,220 @@
-<!doctype html>
-<html>
-<head>
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Barocco Secure Payment</title>
-<style>
-body{font-family:system-ui,Arial,sans-serif;max-width:520px;margin:40px auto;padding:0 16px;color:#111}
-.card{border:1px solid #eee;border-radius:12px;padding:24px;box-shadow:0 1px 3px rgba(0,0,0,.06)}
-h1{font-size:18px} .amt{font-size:15px;color:#444}
-input{font-size:18px;padding:10px;width:100%;box-sizing:border-box;border:1px solid #ccc;border-radius:8px}
-button{margin-top:16px;font-size:16px;padding:12px 16px;width:100%;border:0;border-radius:8px;background:#111;color:#fff;cursor:pointer}
-.muted{color:#777;font-size:12px;margin-top:12px}
-</style>
-</head>
-<body>
-<div id="app" class="card"><p>Loading&hellip;</p></div>
-<form id="redirectForm" method="post" style="display:none">
-  <input type="hidden" name="token" id="redirectToken">
-</form>
-<script>
-var FUNCTION_URL = 'https://orvurxgjmsxgtbxdzllo.supabase.co/functions/v1/pay';
-var params = new URLSearchParams(location.search);
-var token = params.get('t') || '';
-var isDone = params.get('done') === '1';
-var app = document.getElementById('app');
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
-function esc(s) {
-  var d = document.createElement('div');
-  d.innerText = String(s);
-  return d.innerHTML;
-}
-function renderError(msg) {
-  app.innerHTML = '<h1>' + esc(msg) + '</h1>';
-}
-function renderDone() {
-  app.innerHTML = '<h1>Thank you</h1><p class="muted">You can close this window.</p>';
-}
-function redirectTo(action, tok) {
-  var f = document.getElementById('redirectForm');
-  f.action = action;
-  document.getElementById('redirectToken').value = tok;
-  app.innerHTML = '<h1>Redirecting to secure payment&hellip;</h1>';
-  f.submit();
-}
-function renderAmountForm(invoiceNumber, balance) {
-  app.innerHTML =
-    '<h1>Pay invoice ' + esc(invoiceNumber) + '</h1>' +
-    '<p class="amt">Balance due: $' + balance.toFixed(2) + '</p>' +
-    '<label>Amount to pay (USD)</label>' +
-    '<input id="amountInput" type="number" step="0.01" min="0.01" max="' + balance + '" value="' + balance.toFixed(2) + '"/>' +
-    '<button id="continueBtn">Continue to secure payment</button>' +
-    '<p class="muted">Secured by Authorize.Net.</p>';
-  document.getElementById('continueBtn').addEventListener('click', async function () {
-    var amount = parseFloat(document.getElementById('amountInput').value);
-    if (!amount || amount <= 0) { renderError('Enter a valid amount'); return; }
-    app.innerHTML = '<p>Processing&hellip;</p>';
-    try {
-      var res = await fetch(FUNCTION_URL + '?t=' + encodeURIComponent(token), {
-        method: 'POST',
-        headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount: amount }),
-      });
-      var data = await res.json();
-      handleResponse(data);
-    } catch (e) {
-      renderError('Something went wrong. Please try again.');
-    }
-  });
-}
-function handleResponse(data) {
-  if (data.error) { renderError(typeof data.error === 'string' ? data.error : 'Something went wrong'); return; }
-  if (data.status === 'redirect') { redirectTo(data.action, data.token); return; }
-  if (data.status === 'amount_form') { renderAmountForm(data.invoiceNumber, data.balance); return; }
-  if (data.status === 'done') { renderDone(); return; }
-  renderError('Unexpected response');
+const ENV = (Deno.env.get('AUTHNET_ENV') ?? 'production').toLowerCase()
+const API_BASE = ENV === 'sandbox' ? 'https://apitest.authorize.net' : 'https://api.authorize.net'
+const HOSTED_BASE = ENV === 'sandbox' ? 'https://test.authorize.net' : 'https://accept.authorize.net'
+const STATIC_PAGE = 'https://shawnbarocco.github.io/barocco-pay-pages/pay.html'
+
+const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
+
+const { data: creds } = await admin.rpc('pb_internal_authnet_credentials')
+const merchantAuth = { name: creds?.api_login_id ?? '', transactionKey: creds?.transaction_key ?? '' }
+
+const CORS_HEADERS = {
+  'access-control-allow-origin': 'https://shawnbarocco.github.io',
+  'access-control-allow-methods': 'GET, POST, OPTIONS',
+  'access-control-allow-headers': 'content-type, accept',
 }
 
-(async function init() {
-  if (!token) { renderError('Invalid link'); return; }
-  try {
-    var url = FUNCTION_URL + '?t=' + encodeURIComponent(token) + (isDone ? '&done=1' : '');
-    var res = await fetch(url, { headers: { 'Accept': 'application/json' } });
-    var data = await res.json();
-    handleResponse(data);
-  } catch (e) {
-    renderError('Something went wrong. Please try again.');
+function html(body: string, status = 200): Response {
+  return new Response(
+    `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+    <style>body{font-family:system-ui,Arial,sans-serif;max-width:520px;margin:40px auto;padding:0 16px;color:#111}
+    .card{border:1px solid #eee;border-radius:12px;padding:24px;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+    h1{font-size:18px} .amt{font-size:15px;color:#444} input{font-size:18px;padding:10px;width:100%;box-sizing:border-box;border:1px solid #ccc;border-radius:8px}
+    button{margin-top:16px;font-size:16px;padding:12px 16px;width:100%;border:0;border-radius:8px;background:#111;color:#fff;cursor:pointer}
+    .muted{color:#777;font-size:12px;margin-top:12px}</style></head><body><div class="card">${body}</div></body></html>`,
+    { status, headers: { 'content-type': 'text/html; charset=utf-8', ...CORS_HEADERS } },
+  )
+}
+
+function json(data: unknown, status = 200): Response {
+  return new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json', ...CORS_HEADERS } })
+}
+
+function autoPost(action: string, token: string): Response {
+  return html(`
+    <h1>Redirecting to secure payment…</h1>
+    <form id="f" method="post" action="${action}"><input type="hidden" name="token" value="${token}"/></form>
+    <script>document.getElementById('f').submit()</script>
+    <noscript><button onclick="document.getElementById('f').submit()">Continue</button></noscript>`,
+  )
+}
+
+function wantsJson(req: Request): boolean {
+  return (req.headers.get('accept') ?? '').includes('application/json')
+}
+
+async function authnet(body: unknown): Promise<any> {
+  const res = await fetch(`${API_BASE}/xml/v1/request.api`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  const text = (await res.text()).replace(/^﻿/, '').trim()
+  return JSON.parse(text)
+}
+
+async function ensureCustomerProfile(customerId: number): Promise<string> {
+  const { data: cust } = await admin
+    .from('customers')
+    .select('authnet_customer_profile_id, email, company_name')
+    .eq('id', customerId)
+    .single()
+  if (cust?.authnet_customer_profile_id) return cust.authnet_customer_profile_id
+
+  const created = await authnet({
+    createCustomerProfileRequest: {
+      merchantAuthentication: merchantAuth,
+      profile: {
+        merchantCustomerId: String(customerId),
+        description: cust?.company_name ?? `Customer ${customerId}`,
+        email: cust?.email ?? undefined,
+      },
+    },
+  })
+  const profileId =
+    created?.customerProfileId ??
+    created?.messages?.message?.[0]?.text?.match(/\d+/)?.[0]
+  if (!profileId) throw new Error('Could not create customer profile')
+  await admin.from('customers').update({ authnet_customer_profile_id: String(profileId) }).eq('id', customerId)
+  return String(profileId)
+}
+
+async function loadLink(token: string) {
+  const { data } = await admin.from('pos_payment_links').select('*').eq('token', token).single()
+  if (!data) return null
+  if (data.status !== 'active') return { ...data, _invalid: 'This link is no longer active.' }
+  if (data.expires_at && new Date(data.expires_at) < new Date()) return { ...data, _invalid: 'This link has expired.' }
+  return data
+}
+
+Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { status: 204, headers: CORS_HEADERS })
   }
-})();
-</script>
-</body>
-</html>
+
+  const url = new URL(req.url)
+  const token = url.searchParams.get('t') ?? ''
+  const wantJson = wantsJson(req)
+
+  if (!token) {
+    return wantJson ? json({ error: 'Invalid link' }, 400) : html(`<h1>Invalid link</h1>`, 400)
+  }
+
+  const link = await loadLink(token)
+  if (!link) {
+    return wantJson ? json({ error: 'Link not found' }, 404) : html(`<h1>Link not found</h1>`, 404)
+  }
+  if ((link as any)._invalid) {
+    const msg = (link as any)._invalid
+    return wantJson ? json({ error: msg }, 410) : html(`<h1>${msg}</h1>`, 410)
+  }
+
+  if (url.searchParams.get('done')) {
+    return wantJson
+      ? json({ status: 'done' })
+      : html(`<h1>Thank you</h1><p class="muted">You can close this window.</p>`)
+  }
+
+  // Authorize.Net's hosted-page template embeds this URL into an inline <script> var without
+  // escaping "&" - a second query param (e.g. "&done=1") truncates their JSON mid-string and
+  // breaks the whole page (blank Order Summary, g_errorPanelMessage/showPaymentProfileList errors).
+  // A URL fragment is never sent to any server and can't trip this, so use "#done" instead.
+  const returnUrl = `${STATIC_PAGE}?t=${token}#done`
+
+  if (link.purpose === 'save_card') {
+    const profileId = await ensureCustomerProfile(Number(link.customer_id))
+    const resp = await authnet({
+      getHostedProfilePageRequest: {
+        merchantAuthentication: merchantAuth,
+        customerProfileId: profileId,
+        hostedProfileSettings: {
+          setting: [
+            { settingName: 'hostedProfileReturnUrl', settingValue: returnUrl },
+            { settingName: 'hostedProfileReturnUrlText', settingValue: 'Done' },
+            { settingName: 'hostedProfilePageBorderVisible', settingValue: 'true' },
+          ],
+        },
+      },
+    })
+    const t = resp?.token
+    if (!t) return wantJson ? json({ error: 'Could not open the secure form' }, 502) : html(`<h1>Could not open the secure form</h1>`, 502)
+    return wantJson
+      ? json({ status: 'redirect', action: `${HOSTED_BASE}/customer/addPayment`, token: t })
+      : autoPost(`${HOSTED_BASE}/customer/addPayment`, t)
+  }
+
+  if (link.purpose === 'pay_invoice') {
+    const balance = Number(link.max_amount) || 0
+    let amount = Number(link.amount) || 0
+    if (req.method === 'POST') {
+      const ct = req.headers.get('content-type') ?? ''
+      let submitted: number | null = null
+      if (ct.includes('application/json')) {
+        const body = await req.json().catch(() => ({}))
+        submitted = Number(body?.amount) || null
+      } else {
+        const form = await req.formData()
+        submitted = Number(form.get('amount')) || null
+      }
+      amount = Math.min(submitted || 0, balance)
+    }
+    if (req.method !== 'POST' && !amount) {
+      if (wantJson) return json({ status: 'amount_form', invoiceNumber: link.invoice_number, balance })
+      return html(`
+        <h1>Pay invoice ${link.invoice_number}</h1>
+        <p class="amt">Balance due: $${balance.toFixed(2)}</p>
+        <form method="post" action="${url.pathname}?t=${token}">
+          <label>Amount to pay (USD)</label>
+          <input name="amount" type="number" step="0.01" min="0.01" max="${balance}" value="${balance.toFixed(2)}"/>
+          <button type="submit">Continue to secure payment</button>
+        </form>
+        <p class="muted">Secured by Authorize.Net.</p>`,
+      )
+    }
+    if (!amount || amount <= 0) return wantJson ? json({ error: 'Enter a valid amount' }, 400) : html(`<h1>Enter a valid amount</h1>`, 400)
+
+    // transactionRequest.customer.id must be Authorize.Net's own CIM customerProfileId (not our internal
+    // customer_id) - Authorize.Net's hosted payment page uses it to look up saved cards, and a mismatched
+    // id breaks that page's own JS (blank "Order Summary", console errors in showPaymentProfileList).
+    const { data: custRow } = await admin
+      .from('customers')
+      .select('authnet_customer_profile_id')
+      .eq('id', Number(link.customer_id))
+      .single()
+    const customerField = custRow?.authnet_customer_profile_id
+      ? { id: String(custRow.authnet_customer_profile_id) }
+      : undefined
+
+    const resp = await authnet({
+      getHostedPaymentPageRequest: {
+        merchantAuthentication: merchantAuth,
+        transactionRequest: {
+          transactionType: 'authCaptureTransaction',
+          amount: amount.toFixed(2),
+          order: { invoiceNumber: String(link.invoice_number ?? ''), description: 'Invoice payment' },
+          ...(customerField ? { customer: customerField } : {}),
+        },
+        hostedPaymentSettings: {
+          setting: [
+            {
+              settingName: 'hostedPaymentReturnOptions',
+              settingValue: JSON.stringify({ showReceipt: true, url: returnUrl, urlText: 'Done', cancelUrl: returnUrl, cancelUrlText: 'Cancel' }),
+            },
+            { settingName: 'hostedPaymentButtonOptions', settingValue: JSON.stringify({ text: 'Pay' }) },
+            { settingName: 'hostedPaymentOrderOptions', settingValue: JSON.stringify({ show: true }) },
+          ],
+        },
+      },
+    })
+    const t = resp?.token
+    if (!t) return wantJson ? json({ error: 'Could not open the secure payment form' }, 502) : html(`<h1>Could not open the secure payment form</h1>`, 502)
+    await admin.from('pos_payment_links').update({ status: 'used', used_at: new Date().toISOString() }).eq('token', token)
+    return wantJson
+      ? json({ status: 'redirect', action: `${HOSTED_BASE}/payment/payment`, token: t })
+      : autoPost(`${HOSTED_BASE}/payment/payment`, t)
+  }
+
+  return wantJson ? json({ error: 'Unsupported link' }, 400) : html(`<h1>Unsupported link</h1>`, 400)
+})
