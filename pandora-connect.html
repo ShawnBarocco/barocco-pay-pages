@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer">
+<title>Pandora Box connection</title><style>
+body{font:16px system-ui,sans-serif;background:#101317;color:#f5f5f5;margin:0;min-height:100vh;display:grid;place-items:center}
+main{width:min(480px,calc(100% - 32px));background:#1d232a;border:1px solid #45515e;border-radius:14px;padding:28px;box-sizing:border-box}
+h1{font-size:22px;margin:0 0 16px}p{line-height:1.5}label{display:block;margin:16px 0 5px}
+input{box-sizing:border-box;width:100%;padding:12px;border-radius:7px;border:1px solid #85909d;background:#fff;color:#111;font:inherit}
+button{padding:11px 17px;border:0;border-radius:7px;background:#d9ad5d;color:#141414;font:inherit;cursor:pointer;margin:8px 8px 0 0}
+button.secondary{background:#404b57;color:white}button:disabled{opacity:.5;cursor:not-allowed}
+#status{min-height:24px}#details{white-space:pre-wrap;overflow-wrap:anywhere}
+</style></head><body><main><h1>Connect Pandora Box</h1><p id="status">Checking sign-in…</p>
+<section id="login" hidden><p>Sign in with the email account invited to Pandora Box. A one-time sign-in link will arrive by email.</p>
+<label for="email">Email</label><input id="email" type="email" autocomplete="email"><button id="send">Send sign-in link</button></section>
+<section id="consent" hidden><p id="details"></p><p>Only approve if you recognize this connection (ChatGPT or Claude). The tool can access Pandora Box financial and order data. Order placement is separately disabled by default.</p>
+<button id="approve">Approve</button><button id="deny" class="secondary">Deny</button></section></main>
+<script type="module">
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+const client = createClient('https://orvurxgjmsxgtbxdzllo.supabase.co', 'sb_publishable_dZWdklNaAVzbib41G0WZRQ_m0hRyEEh')
+const incomingId = new URLSearchParams(location.search).get('authorization_id')
+if (incomingId) localStorage.setItem('pandora_pending_authorization', JSON.stringify({ id: incomingId, at: Date.now() }))
+let pending
+try { pending = JSON.parse(localStorage.getItem('pandora_pending_authorization') || 'null') } catch { pending = null }
+const authorizationId = incomingId || (pending && Date.now() - pending.at < 15 * 60 * 1000 ? pending.id : null)
+if (!authorizationId) localStorage.removeItem('pandora_pending_authorization')
+const status = document.getElementById('status'), login = document.getElementById('login'), consent = document.getElementById('consent')
+function message(value) { status.textContent = value }
+async function initialize() {
+  if (!authorizationId) { message('Missing authorization request. Restart the connection from ChatGPT or Claude.'); return }
+  const { data: { user }, error: userError } = await client.auth.getUser()
+  if (userError || !user) { message('Sign in to continue.'); login.hidden = false; return }
+  const { data, error } = await client.auth.oauth.getAuthorizationDetails(authorizationId)
+  if (error || !data) { message(error?.message || 'Authorization request expired. Restart the connection.'); return }
+  if (!('authorization_id' in data)) { location.assign(data.redirect_url); return }
+  document.getElementById('details').textContent = 'Signed in as: ' + user.email + '\nApplication: ' + data.client.name + '\nRedirect: ' + data.redirect_uri + '\nRequested permissions: ' + (data.scope || '(none)')
+  message('Review the connection request.'); consent.hidden = false
+}
+document.getElementById('send').onclick = async () => {
+  const email = document.getElementById('email').value.trim()
+  if (!email) return
+  message('Sending sign-in link…')
+  const { error } = await client.auth.signInWithOtp({ email, options: { shouldCreateUser: false, emailRedirectTo: location.origin + location.pathname } })
+  message(error ? error.message : 'Check your email for the sign-in link, then return here.')
+}
+async function decide(approved) {
+  document.getElementById('approve').disabled = document.getElementById('deny').disabled = true
+  message(approved ? 'Approving…' : 'Declining…')
+  const { data, error } = approved ? await client.auth.oauth.approveAuthorization(authorizationId) : await client.auth.oauth.denyAuthorization(authorizationId)
+  if (error || !data?.redirect_url) { message(error?.message || 'Could not complete authorization.'); document.getElementById('approve').disabled = document.getElementById('deny').disabled = false; return }
+  localStorage.removeItem('pandora_pending_authorization')
+  location.assign(data.redirect_url)
+}
+document.getElementById('approve').onclick = () => decide(true)
+document.getElementById('deny').onclick = () => decide(false)
+initialize().catch(() => message('Could not load authorization. Restart the connection.'))
+</script></body></html>
