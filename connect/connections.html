@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pandora Box Connections</title>
+<style>
+  :root { --bg:#f6f5f2; --card:#fff; --ink:#1b1d1f; --muted:#5d6670; --line:#dcd8d0; --ok:#127a43; --warn:#9a5b00; --bad:#a12626; --btn:#1b1d1f; --btnink:#fff; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#15171a; --card:#1e2125; --ink:#ecebe7; --muted:#a3a9b0; --line:#33383d; --ok:#41c883; --warn:#e0a64a; --bad:#ef7b7b; --btn:#ecebe7; --btnink:#15171a; } }
+  :root[data-theme="dark"] { --bg:#15171a; --card:#1e2125; --ink:#ecebe7; --muted:#a3a9b0; --line:#33383d; --ok:#41c883; --warn:#e0a64a; --bad:#ef7b7b; --btn:#ecebe7; --btnink:#15171a; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.5 system-ui,-apple-system,"Segoe UI",Arial,sans-serif; }
+  main { max-width:880px; margin:0 auto; padding:26px 16px 60px; }
+  .brand { letter-spacing:.18em; font-weight:700; font-size:13px; margin-bottom:18px; }
+  h1 { font-size:26px; margin:0 0 4px; }
+  .lead { color:var(--muted); margin:0 0 22px; max-width:66ch; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,380px),1fr)); gap:16px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:18px; }
+  .card h2 { font-size:18px; margin:0 0 6px; }
+  .st { display:inline-block; font-size:12px; letter-spacing:.04em; text-transform:uppercase; border:1px solid var(--line); border-radius:999px; padding:2px 10px; margin-bottom:8px; }
+  .ok { color:var(--ok); border-color:var(--ok); } .warn { color:var(--warn); border-color:var(--warn); } .bad { color:var(--bad); border-color:var(--bad); }
+  .muted { color:var(--muted); font-size:14px; }
+  dl { margin:8px 0; display:grid; grid-template-columns:auto 1fr; gap:2px 12px; font-size:14px; } dt { color:var(--muted); } dd { margin:0; }
+  a.btn, button { display:inline-block; font:600 14px system-ui,Arial; padding:9px 14px; border-radius:6px; border:1px solid var(--btn); background:var(--btn); color:var(--btnink); text-decoration:none; cursor:pointer; margin:6px 8px 0 0; }
+  button.ghost { background:transparent; color:var(--ink); border-color:var(--line); }
+  a:focus-visible, button:focus-visible { outline:3px solid var(--ok); outline-offset:2px; }
+  ul { padding-left:18px; margin:6px 0; }
+  footer { margin-top:26px; font-size:13px; color:var(--muted); }
+  footer a { color:inherit; }
+</style>
+</head>
+<body>
+<main>
+  <div class="brand">BAROCCO &middot; PANDORA BOX</div>
+  <h1>Connections</h1>
+  <p class="lead">Sign-ins for social accounts. Only Shawn can open this page. Tokens are kept in the Vault, never in tables. Posting stays OFF until you switch it on.</p>
+  <div id="app"><p class="muted">Loading&hellip;</p></div>
+  <footer>
+    <a href="https://barocco.com/policies/privacy-policy">Privacy policy</a> &middot; <a href="https://barocco.com/policies/terms-of-service">Terms of service</a>
+  </footer>
+</main>
+<script>
+const API = 'https://orvurxgjmsxgtbxdzllo.supabase.co/functions/v1/social-connect';
+const K = new URLSearchParams(location.search).get('k') || '';
+const app = document.getElementById('app');
+const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const fmt = d => d ? new Date(d).toLocaleString('en-US', { timeZone: 'America/Los_Angeles', dateStyle: 'medium', timeStyle: 'short' }) + ' PT' : 'unknown';
+const LABEL = { waiting_for_key: ['warn', 'Waiting for key'], connected: ['ok', 'Connected'], needs_reconnect: ['bad', 'Reconnect needed'], not_connected: ['', 'Not connected'] };
+
+function card(p) {
+  const [cls, label] = LABEL[p.status] || ['', p.status];
+  let body = '';
+  if (p.status === 'waiting_for_key') body = '<p class="muted">Add ' + esc(p.key_names) + ' to the Vault, then reload this page.</p>';
+  else if (p.status === 'connected' || p.status === 'needs_reconnect') {
+    body = '<dl><dt>Account</dt><dd>' + esc(p.account || 'unknown') + '</dd>' +
+      (p.followers != null ? '<dt>' + (p.platform === 'youtube' ? 'Subscribers' : 'Followers') + '</dt><dd>' + Number(p.followers).toLocaleString('en-US') + '</dd>' : '') +
+      '<dt>Access token</dt><dd>expires ' + esc(fmt(p.access_expires_at)) + '</dd>' +
+      (p.refresh_expires_at ? '<dt>Sign-in valid until</dt><dd>' + esc(fmt(p.refresh_expires_at)) + '</dd>' : '') +
+      '<dt>Posting</dt><dd>' + (p.posting_enabled ? 'ON' : 'OFF') + ' (default privacy ' + esc(p.default_privacy) + ')</dd>' +
+      (p.demo_mode ? '<dt>Mode</dt><dd>Demo (sandbox)</dd>' : '') +
+      (p.last_error ? '<dt>Last problem</dt><dd>' + esc(p.last_error) + '</dd>' : '') + '</dl>';
+  } else body = '<p class="muted">Posting is ' + (p.posting_enabled ? 'ON' : 'OFF') + '. Sign in with the ' + (p.platform === 'tiktok' ? 'TikTok account' : 'Google account that owns the Barocco YouTube channel') + '.</p>';
+  let btn = '';
+  if (p.connect_url) btn += '<a class="btn" href="' + esc(p.connect_url) + '">' + (p.status === 'connected' || p.status === 'needs_reconnect' ? 'Reconnect ' : 'Connect ') + esc(p.name) + '</a>';
+  if (p.disconnect_url) btn += '<button class="ghost" data-disc="' + esc(p.disconnect_url) + '" data-name="' + esc(p.name) + '">Disconnect</button>';
+  return '<section class="card"><h2>' + esc(p.name) + '</h2><span class="st ' + cls + '">' + label + '</span>' + body + btn + '</section>';
+}
+
+async function load() {
+  try {
+    const r = await fetch(API + '?format=json&k=' + encodeURIComponent(K), { headers: { accept: 'application/json' } });
+    const d = await r.json();
+    if (!d.ok) { app.innerHTML = '<section class="card"><span class="st bad">Link needed</span><p>' + esc(d.message || 'Ask Ask Pandora to open Connections.') + '</p></section>'; return; }
+    app.innerHTML = '<div class="grid">' + d.providers.map(card).join('') + '</div>' +
+      '<section class="card" style="margin-top:16px"><h2>Other connections (read only)</h2><ul>' + d.others.map(o => '<li>' + esc(o.name) + ': ' + (o.connected ? '<b style="color:var(--ok)">connected</b> (key in the Vault)' : '<b style="color:var(--warn)">waiting for key</b>') + '</li>').join('') + '</ul></section>' +
+      '<p class="muted" style="margin-top:14px">This link works for 30 minutes. Ask Ask Pandora for a new one.</p>';
+  } catch (e) { app.innerHTML = '<section class="card"><span class="st bad">Problem</span><p>Could not load the connections. Try again in a moment.</p></section>'; }
+}
+document.addEventListener('click', async e => {
+  const u = e.target.getAttribute && e.target.getAttribute('data-disc');
+  if (!u) return;
+  if (!confirm('Disconnect ' + e.target.getAttribute('data-name') + '? The saved tokens are deleted.')) return;
+  e.target.disabled = true;
+  try { await fetch(u + '&format=json', { method: 'POST' }); } catch (err) { /* reload shows the real state */ }
+  load();
+});
+load();
+</script>
+</body>
+</html>

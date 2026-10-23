@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pandora Box Connected</title>
+<style>
+  :root { --bg:#f6f5f2; --card:#fff; --ink:#1b1d1f; --muted:#5d6670; --line:#dcd8d0; --ok:#127a43; --bad:#a12626; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#15171a; --card:#1e2125; --ink:#ecebe7; --muted:#a3a9b0; --line:#33383d; --ok:#41c883; --bad:#ef7b7b; } }
+  :root[data-theme="dark"] { --bg:#15171a; --card:#1e2125; --ink:#ecebe7; --muted:#a3a9b0; --line:#33383d; --ok:#41c883; --bad:#ef7b7b; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.5 system-ui,-apple-system,"Segoe UI",Arial,sans-serif; }
+  main { max-width:560px; margin:0 auto; padding:40px 16px 60px; }
+  .brand { letter-spacing:.18em; font-weight:700; font-size:13px; margin-bottom:18px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:26px; }
+  .mark { font-size:46px; line-height:1; color:var(--ok); } .mark.bad { color:var(--bad); }
+  h1 { font-size:26px; margin:8px 0 4px; }
+  dl { margin:14px 0; display:grid; grid-template-columns:auto 1fr; gap:3px 14px; font-size:15px; } dt { color:var(--muted); } dd { margin:0; word-break:break-word; }
+  .muted { color:var(--muted); font-size:14px; }
+  footer { margin-top:22px; font-size:13px; color:var(--muted); } footer a { color:inherit; }
+</style>
+</head>
+<body>
+<main>
+  <div class="brand">BAROCCO &middot; PANDORA BOX</div>
+  <div class="card" id="card"></div>
+  <footer><a href="https://barocco.com/policies/privacy-policy">Privacy policy</a> &middot; <a href="https://barocco.com/policies/terms-of-service">Terms of service</a></footer>
+</main>
+<script>
+const q = new URLSearchParams(location.search);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const name = q.get('p') === 'youtube' ? 'YouTube' : 'TikTok';
+const card = document.getElementById('card');
+if (q.get('ok') === '1') {
+  const scopes = (q.get('scopes') || '').split(/[ ,]+/).filter(Boolean);
+  card.innerHTML = '<div class="mark" aria-hidden="true">&#10003;</div><h1>Connected</h1><div class="muted">' + name + '</div>' +
+    '<dl><dt>Account</dt><dd>' + esc(q.get('account') || 'unknown') + '</dd>' +
+    (q.get('followers') ? '<dt>' + (name === 'YouTube' ? 'Subscribers' : 'Followers') + '</dt><dd>' + Number(q.get('followers')).toLocaleString('en-US') + '</dd>' : '') +
+    (scopes.length ? '<dt>Permissions</dt><dd>' + esc(scopes.join(', ')) + '</dd>' : '') + '</dl>' +
+    '<p class="muted">Posting is still OFF. You can close this tab and go back to Pandora Box.</p>';
+} else {
+  card.innerHTML = '<div class="mark bad" aria-hidden="true">&times;</div><h1>Not connected</h1><div class="muted">' + name + '</div><p>' + esc(q.get('message') || 'The sign-in was not completed.') + '</p><p class="muted">Nothing was saved. Open Connections from Ask Pandora and start again.</p>';
+}
+</script>
+</body>
+</html>
