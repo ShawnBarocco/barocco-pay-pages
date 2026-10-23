@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Connect the main number</title>
+<style>
+  :root { --bg:#f6f5f2; --ink:#1c1b19; --mute:#6a665f; --card:#ffffff; --line:#dedad2; --accent:#14532d; --accent-ink:#ffffff; --bad:#9b1c1c; --good:#14532d; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#161513; --ink:#efece6; --mute:#a29d93; --card:#1f1e1b; --line:#37342e; --accent:#4ade80; --accent-ink:#0b1a10; --bad:#f87171; --good:#4ade80; } }
+  :root[data-theme="dark"] { --bg:#161513; --ink:#efece6; --mute:#a29d93; --card:#1f1e1b; --line:#37342e; --accent:#4ade80; --accent-ink:#0b1a10; --bad:#f87171; --good:#4ade80; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.55 "Segoe UI", system-ui, -apple-system, Arial, sans-serif; display:flex; justify-content:center; padding:32px 16px; }
+  main { width:100%; max-width:560px; background:var(--card); border:1px solid var(--line); border-radius:10px; padding:28px; }
+  h1 { font-size:22px; margin:0 0 6px; text-wrap:balance; }
+  p { margin:10px 0; }
+  .mute { color:var(--mute); font-size:14px; }
+  ol { padding-left:20px; margin:12px 0; }
+  li { margin:6px 0; }
+  button { font:inherit; font-weight:600; background:var(--accent); color:var(--accent-ink); border:0; border-radius:8px; padding:12px 18px; cursor:pointer; margin-top:12px; }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  button:focus-visible { outline:3px solid var(--ink); outline-offset:2px; }
+  #out { margin-top:18px; padding:14px; border:1px solid var(--line); border-radius:8px; display:none; white-space:pre-wrap; word-break:break-word; font-size:14px; }
+  #out.ok { border-color:var(--good); } #out.bad { border-color:var(--bad); }
+  #head { font-weight:700; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Connect Barocco's main number</h1>
+  <p class="mute">+1 213-302-8348 is connected to Pandora <b>without leaving</b> your WhatsApp Business app. It keeps working on your phone.</p>
+  <ol>
+    <li>Keep the <b>WhatsApp Business app open</b> on your phone.</li>
+    <li>Click the button and sign in to Facebook if it asks.</li>
+    <li>When Meta shows a QR code, scan it in the Business app (Settings, then the linking prompt) and approve.</li>
+    <li>Choose to share chat history if you want Pandora to see old chats. This can only be done once.</li>
+  </ol>
+  <button id="go" disabled>Connect the main number</button>
+  <div id="out" role="status" aria-live="polite"><div id="head"></div><div id="body"></div></div>
+  <p class="mute">This link works once and expires 30 minutes after it was made. Nothing is sent to any customer by connecting.</p>
+</main>
+
+<script>
+(function () {
+  var APP_ID = '2076001256266835', CONFIG_ID = '1656465369340702';
+  var API = 'https://orvurxgjmsxgtbxdzllo.supabase.co/functions/v1/wa-coexist-signup';
+  var token = (location.hash.match(/t=([a-f0-9]+)/) || [])[1] || '';
+  var btn = document.getElementById('go'), out = document.getElementById('out'), head = document.getElementById('head'), body = document.getElementById('body');
+  var state = { code: null, waba: null, event: null, sent: false };
+
+  function show(kind, h, b) { out.style.display = 'block'; out.className = kind; head.textContent = h; body.textContent = b || ''; }
+
+  if (!token) { show('bad', 'This page needs a signup link', 'Ask Claude for a fresh link. This page does nothing without one.'); }
+
+  window.fbAsyncInit = function () {
+    FB.init({ appId: APP_ID, autoLogAppEvents: true, xfbml: true, version: 'v26.0' });
+    if (token) btn.disabled = false;
+  };
+  (function (d, s, id) { if (d.getElementById(id)) return; var js = d.createElement(s); js.id = id; js.async = true; js.defer = true; js.src = 'https://connect.facebook.net/en_US/sdk.js'; d.head.appendChild(js); })(document, 'script', 'facebook-jssdk');
+
+  // Meta reports the business account through a window message while the popup runs
+  window.addEventListener('message', function (event) {
+    if (event.origin !== 'https://www.facebook.com' && event.origin !== 'https://web.facebook.com') return;
+    try {
+      var data = JSON.parse(event.data);
+      if (data && data.type === 'WA_EMBEDDED_SIGNUP') {
+        state.event = data.event;
+        if (data.data && data.data.waba_id) state.waba = String(data.data.waba_id);
+        if (data.event === 'CANCEL' || data.event === 'ERROR') show('bad', 'The signup was not finished', 'Meta reported: ' + data.event + (data.data && data.data.error_message ? ' (' + data.data.error_message + ')' : '') + '. Nothing was changed.');
+        maybeSend();
+      }
+    } catch (e) { /* not a Meta signup message */ }
+  });
+
+  function maybeSend() {
+    if (state.sent || !state.code || !state.waba) return;
+    state.sent = true;
+    show('', 'Finishing the connection...', 'Please wait. Keep the phone app open.');
+    fetch(API, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'complete', token: token, code: state.code, waba_id: state.waba }) })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (j.ok) show('ok', 'Connected', 'The main number is linked to Pandora. It stays OFF (draft, dry-run, test-only) until you say go. Tell Claude: "signup done".');
+        else show('bad', 'Not connected', (j.error || 'Something went wrong') + (j.steps ? '\n' + JSON.stringify(j.steps, null, 1) : ''));
+      })
+      .catch(function () { show('bad', 'Could not reach Pandora', 'Check your internet and ask for a fresh link.'); });
+  }
+
+  btn.addEventListener('click', function () {
+    btn.disabled = true; state = { code: null, waba: null, event: null, sent: false };
+    show('', 'Waiting for Meta...', 'A Meta window opens. Follow it on screen and on your phone.');
+    FB.login(function (response) {
+      if (response.authResponse && response.authResponse.code) {
+        state.code = response.authResponse.code;
+        maybeSend();
+        // if Meta never sent the account message, say so instead of hanging
+        setTimeout(function () { if (!state.sent) { show('bad', 'Meta did not report the business account', 'The code arrived but the account id did not. Nothing was changed. Ask for a fresh link and try again.'); } }, 20000);
+      } else {
+        show('bad', 'The signup was cancelled or not allowed', 'If Meta showed an error about this app, tell Claude exactly what it said. Nothing was changed.');
+        btn.disabled = false;
+      }
+    }, { config_id: CONFIG_ID, response_type: 'code', override_default_response_type: true, extras: { setup: {}, featureType: 'whatsapp_business_app_onboarding', sessionInfoVersion: '3' } });
+  });
+})();
+</script>
+</body>
+</html>
